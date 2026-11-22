@@ -80,6 +80,10 @@ npm run dev
   `frontend/src/domain/<模块>.ts`，用于承载真实业务差异并维持36题位容量。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+- DDL处理支持导出列演进数据包：`GET /api/ddl_handle/{id}/evolution-package`，
+  包内携带演进发生时的源表、列型及关联键字段出处；维表关联导入校验：
+  `POST /api/dim_join/{id}/import-evolution-package`（请求体为数据包JSON），
+  确认批次可读取的键列、圈定可执行范围与暂停行，并向Schema演进登记采用版本与待验证列。
 
 领域：数据工程
 子方向：数仓与数据湖

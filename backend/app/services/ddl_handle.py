@@ -1,9 +1,11 @@
 """DDL适配服务：DDL变更成功后级联影响解析规则和Schema演进。"""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services.column_evolution import split_column_change
 from app.store import store
 
 
@@ -63,3 +65,71 @@ class DdlHandleService(BaseModuleService):
         results["schema"] = schema
 
         return results
+
+    def build_column_evolution_package(self, entry_id: int) -> dict[str, Any] | None:
+        """从演进记录的变更前后字段组装列演进数据包，供维表关联核验列型。
+
+        数据流链路: ddl_handle -> schema_evo(列变更前后) + dim_join(关联键出处)
+
+        包内携带演进发生时的源表、列型及关联键字段出处，导入方凭这些证据
+        识别看似同名的不同版本列定义。
+        """
+        entry = self.get_entry(entry_id)
+        if entry is None:
+            return None
+        source = str(entry.get("源端", ""))
+        table = str(entry.get("影响表", ""))
+
+        # 匹配该DDL适配对应的演进记录：数据流与源端同名、以影响表开头或下游影响点名
+        matched: list[dict[str, Any]] = []
+        for se in store.rows("schema_evo"):
+            flow = str(se.get("数据流", ""))
+            impact = str(se.get("下游影响", ""))
+            if flow == source or (table and (flow.startswith(table) or table in impact)):
+                matched.append(se)
+        if not matched:
+            return None
+
+        flows = {str(se.get("数据流", "")) for se in matched}
+
+        # 关联键字段出处：涉及这些数据流的维表关联配置
+        key_origins: list[dict[str, Any]] = []
+        for dj in store.rows("dim_join"):
+            fact = str(dj.get("事实表", ""))
+            dim = str(dj.get("维度表", ""))
+            if fact in flows or (table and (fact.startswith(table) or dim == table)):
+                key_origins.append({
+                    "配置编号": dj.get("配置编号", ""),
+                    "事实表": fact,
+                    "维度表": dim,
+                    "关联键": dj.get("关联键", ""),
+                    "字段出处": f"dim_join#{dj.get('配置编号', '')}.关联键",
+                })
+
+        columns: list[dict[str, Any]] = []
+        for se in matched:
+            name = split_column_change(str(se.get("变更列", "")))
+            origins = [item["字段出处"] for item in key_origins if item["关联键"] == name]
+            columns.append({
+                "列名": name,
+                "变更前列型": se.get("列变更前", ""),
+                "变更后列型": se.get("列变更后", ""),
+                "兼容模式": se.get("兼容模式", ""),
+                "演进时间": se.get("演进时间", ""),
+                "演进记录": se.get("记录编号", ""),
+                "数据流": se.get("数据流", ""),
+                "源表": table,
+                "关联键出处": origins,
+            })
+
+        return {
+            "包编号": f"CEP-{entry_id:04d}",
+            "包类型": "列演进数据包",
+            "包版本": 1,
+            "生成时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "适配编号": entry.get("适配编号", ""),
+            "源端": source,
+            "源表": table,
+            "列演进": columns,
+            "关联键出处": key_origins,
+        }

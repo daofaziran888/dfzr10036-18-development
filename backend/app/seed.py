@@ -91,6 +91,49 @@ SEED_ROWS: dict[str, list[dict[str, Any]]] = {
             "关联类型": "INNER JOIN", "缺失策略": "丢弃关联失败行",
             "缓存TTL": "600s", "命中率": "34.2%",
         },
+        {
+            "id": 3, "status": "关联中", "pending": True, "abnormal": False,
+            "配置编号": "DIMJ-0003", "事实表": "order_events_cdc",
+            "维度表": "dim_tier_benefits", "关联键": "customer_tier",
+            "关联类型": "LEFT JOIN", "缺失策略": "填充默认权益",
+            "缓存TTL": "300s", "命中率": "88.1%",
+            "在途批次": [
+                {
+                    "批次号": "BATCH-01",
+                    "列定义": {"customer_tier": "ENUM('bronze','silver','gold')"},
+                    "行": [
+                        {"行号": 1, "customer_tier": "gold"},
+                        {"行号": 2, "customer_tier": "silver"},
+                        {"行号": 3, "customer_tier": "bronze"},
+                    ],
+                },
+                {
+                    "批次号": "BATCH-02",
+                    "列定义": {"customer_tier": "ENUM('bronze','silver','gold','platinum')"},
+                    "行": [
+                        {"行号": 1, "customer_tier": "platinum"},
+                        {"行号": 2, "customer_tier": "gold"},
+                    ],
+                },
+            ],
+        },
+        {
+            "id": 4, "status": "关联中", "pending": True, "abnormal": False,
+            "配置编号": "DIMJ-0004", "事实表": "order_events_cdc",
+            "维度表": "dim_channel_conf", "关联键": "event_channel",
+            "关联类型": "INNER JOIN", "缺失策略": "丢弃关联失败行",
+            "缓存TTL": "600s", "命中率": "76.4%",
+            "在途批次": [
+                {
+                    "批次号": "BATCH-01",
+                    "列定义": {"event_channel": "VARCHAR(32)"},
+                    "行": [
+                        {"行号": 1, "event_channel": "app"},
+                        {"行号": 2, "event_channel": "telephone"},
+                    ],
+                },
+            ],
+        },
     ],
     "watermark_mgr": [
         {
@@ -232,6 +275,15 @@ SEED_ROWS: dict[str, list[dict[str, Any]]] = {
             "列变更后": "VARCHAR(32)",
             "兼容模式": "向前兼容", "下游影响": "仅影响实时打标任务",
             "演进时间": "2026-11-18 10:32:20",
+        },
+        {
+            "id": 2, "status": "存在风险", "pending": True, "abnormal": True,
+            "记录编号": "SE-0002", "数据流": "order_events_cdc",
+            "变更列": "event_channel(VARCHAR→ENUM)",
+            "列变更前": "VARCHAR(32)",
+            "列变更后": "ENUM('app','web')",
+            "兼容模式": "向后兼容", "下游影响": "维表关联键值收窄，需核验在途批次",
+            "演进时间": "2026-11-20 09:12:00",
         },
     ],
     "backfill_run": [

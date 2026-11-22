@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -96,6 +97,38 @@ def run_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResu
     service = require_service(module)
     entry, message = service.run_action(entry_id, payload.action.strip())
     return ActionResult(ok=entry is not None, message=message, entry=entry)
+
+
+# ---- 列演进数据包：DDL处理导出、维表关联导入校验 ----
+
+@router.get("/{module}/{entry_id}/evolution-package")
+def export_evolution_package(module: str, entry_id: int) -> StreamingResponse:
+    """从演进记录的变更前后字段导出列演进数据包（供维表关联核验列型）。"""
+    service = require_service(module)
+    builder = getattr(service, "build_column_evolution_package", None)
+    if builder is None:
+        raise HTTPException(status_code=404, detail=f"{service.ENTITY}不支持列演进数据包导出")
+    package = builder(entry_id)
+    if package is None:
+        raise HTTPException(status_code=404, detail=f"{service.ENTITY} {entry_id} 不存在或没有可导出的演进记录")
+    payload = json.dumps(package, ensure_ascii=False, indent=2)
+    return StreamingResponse(
+        iter([payload]), media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="column_evolution_package_{entry_id}.json"'},
+    )
+
+
+@router.post("/{module}/{entry_id}/import-evolution-package")
+def import_evolution_package(module: str, entry_id: int, package: dict[str, Any]) -> dict[str, Any]:
+    """导入列演进数据包校验关联输入，确认批次可读取的键列并登记采用版本。"""
+    service = require_service(module)
+    importer = getattr(service, "import_evolution_package", None)
+    if importer is None:
+        raise HTTPException(status_code=404, detail=f"{service.ENTITY}不支持列演进数据包导入")
+    result = importer(entry_id, package)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"{service.ENTITY} {entry_id} 不存在或已归档")
+    return result
 
 
 # ---- 跨模块编排流端点 ----
